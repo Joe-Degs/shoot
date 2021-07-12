@@ -1,0 +1,49 @@
+		thoughts on peer to peer systems and intentions on building one.
+		----------------------------------------------------------------
+So for the past days, i've been thinking about building a peer to peer chat protocol/system that will allow clients on a local network or accross the internet to communicate using tcp sockets. The idea is to design the system with my friends but none of my friends i think share the same enthusiasm with distributed systems as me. I've been watching some courses on distributed systems for some time now, read alot of blog posts, research papers, countless youtube videos and courses. To not deviate from the point of this document lemmme start with some things LOL!.
+
+I started to think about building this when reading a lecture note i found on the internet on p2p networks, i'm still not done with it but i just can't shut down the thought in my brain. It continues to gnaw at my brain and its making my uncomfortable so i just have to put it down somewhere as fast as i can.
+
+				Overview of the system
+				-------------------------
+The whole idea is this, a peer to peer chat system, that communicates over tcp. Peers are uniquely identifiable in the network. And peers can find other peers and give them messages. Peers will have some kind of structured view of the network and messages are persisted in the system. The messsaging will work like this -> chat system will have the concept of ROOMS. rooms are just rooms LOL, and peers can join and leave room. one peer can join multiple rooms. therefore peers can be part of multiple rooms. I don't know much about routing yet but i think the system will have to route things based on room. Peers view of the network will be the topology of the network belonging the rooms he is in. And when sending messages, he has to specify which rooms they are going to. Soo routing is done based on rooms, but there has to be like a bigger routing table that is aware of all the rooms on the system. We do not want to burden users with the task of having to know or care about the whole topology of the network. So i'm thinking, and thinking and i think the network should have the concept of superpeers and these are the moderators and creators of rooms. The creators and moderators of the room will have a better view of the system, than normal peers.
+Messages/Files transmitted in a room will reach those and only those part of that room.
+Kademlia's xor based approach to routing and finding peers sounds cool and i have to read the paper and understand what they did. And also i have to research about how IPFS borrowed it and tweaked it for their use. Might have to look into  bittorent more closely and figure how they do the whole file transfer thing works and peer discovery and all that.
+
+so at the end of the day, we have this different components of the systems;
+	peers -> normal nodes in the system
+	rooms -> group of peers communicating
+	message -> what is been exchanged in the rooms.
+	distributed routing table -> finding things have never been easier.
+	
+
+-> implementation is going to be done in python.
+
+Thinking about this, makes my head hurt because this is way beyond what was in my head.
+
+				Routing and Discovery
+				---------------------
+if there is no central authority in the system that has a clear view of the topology of the system? how do we achieve peer and service discovery in the system. A boot peer(central authority) will allows us to have a stationary server that every talks to when joining the system, it has the record of very peer in the system, probably is responsible for giving out unique identifiers to nodes and other resources in the system. Okay there is the concept of a distributed hash tables used for service and peer lookups in some p2p systems. There are wide variety of implementations to pick from, i just gotta find time to read papers. Unlike normal hash tables that live on single nodes this hash table is going to be distributed to the peers in the system.
+
+				network layer
+				---------------
+the systems network overlay is going to be on top of a tcp and udp connection. The basic idea is to do neigbour discovery with udp and then use tcp for persistent communication channel between nodes. This is the way ethereum's p2p system does it and i think also kademlia. Application layer network is going to be the p2p chat system's network depending on tcp and udp.
+Now i have to think about message formats and how implementation will work. This is not trivial stuff and its mostly what i'm concerned about, the design of the systems protocol. If this is succesful, this will be my first
+
+
+
+			big fat problems
+			------------------
+1. how will routing take place in the system, don't kill yourself just think about it. And learn the solutions of other popular distributed systems.
+
+2. will there be transfer of files in the system?. there should be right?. if there will be the of files, how should it happen. And since you are talking about persistence how will you persist things like files and if new people join will they immediately like get those file or what?
+
+3. How do you deploy a distributed system that does not have a single source of failure? in terms of like peer discovery and other things.
+
+4. How the fuck do people in even test these type of things. Like do you know it will scale and all that.
+
+5. I do not want to have a boot peer. No centralised server that has a complete view of the system bullshit. This thing has to be a fully distributed and decentralized peer to peer chat system period! But how do you achieve this kind of thing is the big question. The scenario is a new peer is launched on some unknowing humans computer, how does the peer get to talk to a peer in the system and exchange things like routing tables and all that.
+
+6. Since its a network, will it be represented with a graph datastructure or what? how exactly are these routing table represented. You could use the fancy merkle trees to represent things that need representing with merkle trees. You barb?
+
+7. Now lets talk packets, whats an efficient way to design packet, because theres no getting around it, you have to have a packet structure in the protocol boy. It makes you cuool. LOL...
