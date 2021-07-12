@@ -53,8 +53,14 @@ class Conn:
     """
     def __init__(self, sock):
         self.sock = sock
-        self.__conn = _SocketWriter(self.sock)
         self.settimeout(2.0)
+        if socket.os.name == 'nt':
+            # windows socket file descriptors are not treated as
+            # normal file descriptors and so cannot be wrapped in
+            # file io stream for easy use.
+            self.__conn = _SocketWriter(self.sock)
+        elif socket.os.name == 'posix':
+            self.__conn = socket.io.open(self.sock.fileno(), 'ba')
     
     def write(self, buf: bytes):
         """ send buf of len(buf) bytes into the underlying socket. """
@@ -100,7 +106,10 @@ class TCPConn(Conn):
     this connection is like a base connection type it could be opened for 
     listening, connected socket or domant.
 
-    conn_type could be => 'listen' | 'connect' | '' """
+    conn_type could be => 'listen'  -> open socket for listening.
+                                  'connect' -> connect socket to a remote host.
+                                  ''        -> socket already bound to a remote host.
+    """
 
     def __init__(self, addr: Addr, conn_type: str, sock=None):
         if sock == None:
@@ -134,8 +143,8 @@ class UDPAddr(Addr):
         Addr.__init__(self, network, addrinfo)
 
 class UDPConn(Conn):
-    """ A UDP Connnection """
-    def __init__(self, addr: UDPAddr, conn_type:str, sock=None):
+    """ A  simple UDP Connnection """
+    def __init__(self, addr: UDPAddr, conn_type: str, sock=None):
         if sock == None:
             Conn.__init__(self, socket.socket(socket.AF_INET, socket.SOCK_DGRAM))
         else:
@@ -158,16 +167,19 @@ class UDPConn(Conn):
             self.sock.close()
             raise
 
-    def read_from(self) -> tuple[tuple[bytes, UDPAddr], socket.socket]:
+    def read_from(self) -> tuple[bytes, Addr]:
         """ Read data from the underlying connection """
         data, raddr = self.sock.recvfrom(self.max_packet_size)
-        return (data, UDPAddr(addrinfo=raddr)), self.sock
+        return data, Addr(addrinfo=raddr)
 
-    def read_from_udp(self) -> tuple[tuple[bytes, UDPAddr], object]:
-        data_addr, sock = self.read_from()
-        return data_addr, UDPConn(data_addr[-1], '', sock=sock)
+    def read_from_udp(self) -> tuple[bytes, UDPAddr]:
+        data, addr = self.read_from()
+        return data, UDPAddr(addrinfo=addr)
 
-    def write_to(self, buf: bytes, addr: UDPAddr) -> int:
+    def write_to(self, buf: bytes, addr: Addr) -> int:
+        return self.sock.sendto(buf, addr.addrinfo)
+
+    def write_to_udp(self, buf: bytes, addr: UDPAddr) -> int:
         return self.sock.sendto(buf, addr.addrinfo)
 
     def local_addr(self) -> UDPAddr:
@@ -231,9 +243,9 @@ def parse_ipv4(network, name):
     return Addr(network, addrinfos[-1][-1])
 
 def parse_udp_addr(addr_str):
-    return UDPAddr(ParseAddr(addr_str).addrinfo)
+    return UDPAddr(ResolveAddr(addr_str).addrinfo)
 
-def ParseAddr(addr: str, addr_type='ipv4', network=None):
+def ResolveAddr(addr: str, addr_type='ipv4', network=None):
     """ spun a new Addr type. if the addr field starts with
     1. tcp/udp then parse_addr_string 
     2. if network is of the form <name>:<port> ex, google.com:80 or 
@@ -252,17 +264,13 @@ def ParseAddr(addr: str, addr_type='ipv4', network=None):
         else:
             return parse_ipv4(network, addr)
 
-class Unimplemented(Exception):
-    pass
-
-
 def Dial(conn_type: str, addr: str):
     """ Dial connects to the address on a named network.
     it returns a subclass of Conn"""
     if conn_type == 'tcp':
         # return a tcp conn ready for reading and writing
         #
-        return TCPConn(ParseAddr(addr), 'connect')
+        return TCPConn(ResolveAddr(addr), 'connect')
     elif conn_type == 'udp':
         # return a udpconn ready for reading and writing
         return UDPConn(parse_udp_addr(addr), 'connect')
@@ -275,6 +283,6 @@ def Listen(conn_type: str, addr: str):
     """ spun a new socket connection thats ready to listen and respond
     to packets like a champ! """
     if conn_type == 'tcp':
-        return TCPListener(ParseAddr(addr))
+        return TCPListener(ResolveAddr(addr))
     elif conn_type == 'udp':
         return UDPConn(parse_udp_addr(addr), 'listen')
