@@ -1,7 +1,9 @@
 import socket
-#import ipaddress as ipaddr
+import io
+import os
+from typing import Union, Optional
 
-class _SocketWriter(socket.io.BufferedIOBase):
+class _SocketWriter(io.BufferedIOBase):
     """
     Simple BufferedIOBase implementation for a socket.
     Does not buffer!
@@ -9,7 +11,10 @@ class _SocketWriter(socket.io.BufferedIOBase):
     def __init__(self, sock):
         self.__sock = sock
 
-    def writable(self):
+    def writable(self) -> bool:
+        return True
+    
+    def readable(self) -> bool:
         return True
 
     def read(self) -> bytes:
@@ -24,14 +29,14 @@ class _SocketWriter(socket.io.BufferedIOBase):
             except Exception as e:
                 raise e
 
-    def write(self, buf):
+    def write(self, buf) -> int:
         self.__sock.sendall(buf)
         with memoryview(buf) as view:
             return view.nbytes
 
 class Addr:
     """ Addr represents a network endpoint address """
-    def __init__(self, network: str, addrinfo: tuple):
+    def __init__(self, addrinfo: tuple, network: Optional[str] = None):
         self.network = network
         self.addrinfo = addrinfo
 
@@ -43,6 +48,23 @@ class Addr:
 
     def __repr__(self) -> str:
         return self.__str__()
+    
+    @staticmethod
+    def from_addrinfo(addrinfo: tuple) -> 'Addr':
+        return Addr(addrinfo)
+
+    def to_addr(self) -> 'Addr':
+        return Addr(addrinfo=self.addrinfo)
+
+class TCPAddr(Addr):
+   """ This represents an address related to a tcpconn """ 
+   def __init__(self, addrinfo: tuple, network = 'tcp'):
+        Addr.__init__(self, addrinfo, network)
+
+class UDPAddr(Addr):
+   """ This represents a udp address """ 
+   def __init__(self, addrinfo: tuple, network = 'udp'):
+        Addr.__init__(self, addrinfo, network)
 
 class Conn:
     """ It will be nice to achieve all that out of the box read and writing,
@@ -54,32 +76,34 @@ class Conn:
     def __init__(self, sock):
         self.sock = sock
         self.settimeout(2.0)
-        if socket.os.name == 'nt':
+        if os.name == 'nt':
             # windows socket file descriptors are not treated as
             # normal file descriptors and so cannot be wrapped in
             # file io stream for easy use.
             self.__conn = _SocketWriter(self.sock)
-        elif socket.os.name == 'posix':
-            self.__conn = socket.io.open(self.sock.fileno(), 'ba')
+        elif os.name == 'posix':
+            self.__conn = io.open(self.sock.fileno(), 'ab')
+        else:
+            NotImplementedError(os.name)
     
     def write(self, buf: bytes):
         """ send buf of len(buf) bytes into the underlying socket. """
         return self.__conn.write(buf)
 
-    def read(self):
+    def read(self) -> bytes:
         return self.__conn.read()
 
-    def file(self):
+    def file(self) -> Union[_SocketWriter, io.BufferedRandom]:
         """ returns a opened file object for reading and writing """
         return self.__conn
 
-    def connect(self, addr: Addr):
+    def connect(self, addr: Union[Addr, TCPAddr, UDPAddr]):
         self.sock.connect(addr.addrinfo)
 
-    def srv_bind(self, addrinfo, reuse=True):
+    def srv_bind(self, addr: Union[Addr, TCPAddr, UDPAddr], reuse=True):
         if reuse:
             self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.bind(addrinfo)
+        self.sock.bind(addr.addrinfo)
     
     def setblocking(self, flag: bool) -> None:
         """ set socket mode to blocking or non-blocking """
@@ -89,7 +113,7 @@ class Conn:
         """ set timeout on the socket """
         self.sock.settimeout(timeout)
 
-    def close(self):
+    def close(self) -> None:
         """ close all the connections (socket and io stream) """
         self.sock.close()
         self.__conn.close()
@@ -111,7 +135,7 @@ class TCPConn(Conn):
                                   ''        -> socket already bound to a remote host.
     """
 
-    def __init__(self, addr: Addr, conn_type: str, sock=None):
+    def __init__(self, addr: Union[Addr, TCPAddr], conn_type: str, sock=Optional[socket.socket]):
         if sock == None:
             Conn.__init__(self, socket.socket(socket.AF_INET, socket.SOCK_STREAM))
         else:
@@ -119,10 +143,10 @@ class TCPConn(Conn):
         self.addr = addr
         try:
             if conn_type == 'listen':
-                self.srv_bind(self.addr.addrinfo)
+                self.srv_bind(self.addr)
             elif conn_type == 'connect':
                 self.connect(addr)
-                self.addr = Addr('tcp', self.sock.getsockname())
+                self.addr = TCPAddr(self.sock.getsockname())
             elif conn_type == '':
                 return
             else:
@@ -131,20 +155,15 @@ class TCPConn(Conn):
             self.sock.close()
             raise
     
-    def local_addr(self):
+    def local_addr(self) -> Union[Addr, TCPAddr]:
         return self.addr
 
     def remote_addr(self):
-        return Addr('tcp', self.sock.getpeername())
-
-class UDPAddr(Addr):
-   """ This represents a udp address """ 
-   def __init__(self, network='udp', addrinfo=()):
-        Addr.__init__(self, network, addrinfo)
+        return TCPAddr(self.sock.getpeername())
 
 class UDPConn(Conn):
     """ A  simple UDP Connnection """
-    def __init__(self, addr: UDPAddr, conn_type: str, sock=None):
+    def __init__(self, addr: Union[Addr, UDPAddr], conn_type: str, sock=None):
         if sock == None:
             Conn.__init__(self, socket.socket(socket.AF_INET, socket.SOCK_DGRAM))
         else:
@@ -153,10 +172,10 @@ class UDPConn(Conn):
         self.max_packet_size = 8192
         try:
             if conn_type == 'listen':
-                self.srv_bind(self.addr.addrinfo, reuse=False)
+                self.srv_bind(self.addr, reuse=False)
             elif conn_type == 'connect':
                 self.connect(addr)
-                self.addr = Addr('tcp', self.sock.getsockname())
+                self.addr = UDPAddr(self.sock.getsockname())
             elif conn_type == '':
                 # remote socket conn, do not bind, do not connect
                 # don't do shit
@@ -174,9 +193,9 @@ class UDPConn(Conn):
 
     def read_from_udp(self) -> tuple[bytes, UDPAddr]:
         data, addr = self.read_from()
-        return data, UDPAddr(addrinfo=addr)
+        return data, UDPAddr(addr.addrinfo)
 
-    def write_to(self, buf: bytes, addr: Addr) -> int:
+    def write_to(self, buf: bytes, addr: Union[Addr, UDPAddr]) -> int:
         return self.sock.sendto(buf, addr.addrinfo)
 
     def write_to_udp(self, buf: bytes, addr: UDPAddr) -> int:
@@ -193,22 +212,17 @@ class TCPListener(TCPConn):
     """ A tcp listener """
     queue_size = 10
 
-    def __init__(self, addr: Addr, queue_size=queue_size):
+    def __init__(self, addr: Union[Addr, TCPAddr], queue_size: int=queue_size):
         TCPConn.__init__(self, addr, 'listen')
         self.sock.listen(queue_size)
 
-    def accept(self):
+    def accept(self) -> Conn:
         """ return the next  socket connection in the listen queue """
-        self.sock.accept()
+        return Conn(self.sock.accept())
 
     def accept_tcp(self) -> TCPConn:
         """ return a new tcp connection """
         return TCPConn(self.sock.accept().getsockname(), '')
-
-def parse_str_addr(addr_str):
-    """ addr_str is in the form '<network>:<ipaddress>:<port>' """
-    s = addr_str.split(':')
-    return Addr(s[0], (s[1], s[2]))
 
 class InvalidAddrFormat(Exception):
     msg = f'''
@@ -217,6 +231,11 @@ class InvalidAddrFormat(Exception):
     '''
     def __init__(self, message=msg):
         super().__init__(message)
+
+def parse_str_addr(addr_str):
+    """ addr_str is in the form '<network>:<ipaddress>:<port>' """
+    s = addr_str.split(':')
+    return Addr((s[1], s[2]), s[0])
 
 def get_host_and_port(name):
     name = name.split(':')
@@ -235,12 +254,12 @@ def get_addrinfo(host: str, port: int, iptype: int):
 def parse_ipv6(network, name):
     host, port = get_host_and_port(name)
     addrinfos = get_addrinfo(host, port, 6)
-    return Addr(network, addrinfos[-1][-1])
+    return Addr(addrinfos[-1][-1])
 
 def parse_ipv4(network, name):
     host, port = get_host_and_port(name)
     addrinfos = get_addrinfo(host, port, 4)
-    return Addr(network, addrinfos[-1][-1])
+    return Addr(addrinfos[-1][-1])
 
 def parse_udp_addr(addr_str):
     return UDPAddr(ResolveAddr(addr_str).addrinfo)
