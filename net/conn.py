@@ -3,7 +3,6 @@ import socket
 import io
 import os
 
-# local imports
 from .address import *
 
 class _SocketWriter(io.BufferedIOBase):
@@ -223,27 +222,17 @@ class TCPListener(TCPConn):
         return TCPConn(addr=Addr(addrinfo), sock=sock)
 
 
-def Dial(addr: str, network: Optional[str]=None):
+def dial(address: str, network: Optional[str]=None):
     """ 
-    Dial connects to the address on a named network.
-    it returns a subclass of Conn
+    dial connects to network the address endpoint
+    
+    see function resolve_addr for description of network and address parameters
     """
-    if conn_type == 'tcp':
-        # return a tcp conn ready for reading and writing
-        #
-        return TCPConn(ResolveAddr(addr), 'connect')
-    elif conn_type == 'udp':
-        # return a udpconn ready for reading and writing
-        return UDPConn(parse_udp_addr(addr), 'connect')
-    else:
-        # unimplemented protocol type
-        # return Unimplemented(conn_type)
-        NotImplementedError()
+    return NotImplementedError()
 
-def Listen(conn_type: str, addr: str):
-    """ spun a new socket connection thats ready to listen and respond
-    to packets like a champ! """
-    if conn_type == 'tcp':
-        return TCPListener(ResolveAddr(addr))
-    elif conn_type == 'udp':
-        return UDPConn(parse_udp_addr(addr), 'listen')
+def listen(address: str, network: str):
+    """ listen announces and waits for connections on a local network address.
+
+    the network must be a "tcp", "tcp4", "tcp6", "udp", "udp4" or "udp6"
+    """
+    return NotImplementedError()
