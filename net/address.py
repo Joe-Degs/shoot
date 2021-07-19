@@ -40,6 +40,8 @@ class AddressError(Exception):
 
 def split_host_port(hostport: str):
     """return the host:port into individual host, port
+
+    see function resolve_addr for more info on form of hostport
     """
     try:
         if not hostport:
@@ -47,27 +49,41 @@ def split_host_port(hostport: str):
             raise AddressError(hostport, "missing host and port")
 
         i = hostport.rfind(':')
-        if i < 0:
+        # if there is no ':' in hostport or ':' is the last thing
+        # hostport then throw an error into the callers face
+        if i < 0 or len(hostport) == i+1:
             raise AddressError(hostport, "missing port")
 
         if '[' in hostport and ']' in hostport:
             # we are treading ipv6 zone
-            end = hostport.rfind(']')
-
-            if end < 0:
-                raise AddressError(hostport, "address is mising ]")
+            end = hostport.rfind(']') # get index of ]
             if end+1 == len(hostport):
+                # if index of ] is the last thing then there is no port
                 raise AddressError(hostport, "missing port")
-            elif end+1:
+            elif end+1 == i:
+                # this is what we expect
                 pass
-
-            elif end+1 != i:
-                raise AddressError(hostport, "missing ")
-
+            else:
+                if hostport[end+1] == ':':
+                    # either ']' is followed by a colon or it is
+                    # but its not the last one
+                    raise AddressError(hostport, "too many colons")
+                raise AddressError(hostport, "missing port")
+            # host port is worthy ipv6 and should be stripped now.
             hostport = hostport.strip('[]')
         elif '[' in hostport or ']' in hostport:
-            # contains one of [  ]
+            # contains only one of '[' ']'
             raise AddressError(hostport, "address has only one of '[' and ']'")
+        else:
+            # not string representation of ipv6 but has more than one ':'
+            host = hostport[0 : i]
+            if ':'in host:
+                raise AddressError(hostport, "too many colons")
+        
+        # we've made it this far and its cool. we can now start the splitting.
+        host = hostport[0 : i]
+        port = hostport[i+1:]
+        return host, port
     except AddressError:
         raise
 
