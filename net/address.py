@@ -2,6 +2,8 @@ from typing import Union, Optional
 import ipaddress as ipaddr
 import socket
 
+from  .errors import *
+
 class Addr:
     """
     Addr represents a network endpoint address
@@ -35,58 +37,52 @@ def join_host_port(host: str, port: str = '') -> str:
         return f'[{host}]:{port}'
     return f'{host}:{port}'
 
-class AddressError(Exception):
-    pass
-
 def split_host_port(hostport: str):
     """return the host:port into individual host, port
 
     see function resolve_addr for more info on form of hostport
     """
-    try:
-        if not hostport:
-            # wtf do you want to split?
-            raise AddressError(hostport, "missing host and port")
+    if not hostport:
+        # wtf do you want to split?
+        raise AddressError(hostport, "missing host and port in address")
 
-        i = hostport.rfind(':')
-        # if there is no ':' in hostport or ':' is the last thing
-        # hostport then throw an error into the callers face
-        if i < 0 or len(hostport) == i+1:
-            raise AddressError(hostport, "missing port")
+    missing_port = "missing port in address"
+    too_many_colons = "too many colons in address"
 
-        if '[' in hostport and ']' in hostport:
-            # we are treading ipv6 zone
-            end = hostport.rfind(']') # get index of ]
-            if end+1 == len(hostport):
-                # if index of ] is the last thing then there is no port
-                raise AddressError(hostport, "missing port")
-            elif end+1 == i:
-                # this is what we expect
-                pass
-            else:
-                if hostport[end+1] == ':':
-                    # either ']' is followed by a colon or it is
-                    # but its not the last one
-                    raise AddressError(hostport, "too many colons")
-                raise AddressError(hostport, "missing port")
-            # host port is worthy ipv6 and should be stripped now.
-            hostport = hostport.strip('[]')
-        elif '[' in hostport or ']' in hostport:
-            # contains only one of '[' ']'
-            raise AddressError(hostport, "address has only one of '[' and ']'")
+    i = hostport.rfind(':')
+    # if there is no ':' in hostport or ':' is the last thing
+    # hostport then throw an error into the callers face
+    if i < 0 or len(hostport) == i+1:
+        raise AddressError(hostport, missing_port)
+
+    if '[' in hostport and ']' in hostport:
+        # we are treading ipv6 zone
+        end = hostport.rfind(']') # get index of ]
+        if end+1 == len(hostport):
+            # if index of ] is the last thing then there is no port
+            raise AddressError(hostport, missing_port)
+        elif end+1 == i:
+            # this is what we expect
+            pass
         else:
-            # not string representation of ipv6 but has more than one ':'
-            host = hostport[0 : i]
-            if ':'in host:
-                raise AddressError(hostport, "too many colons")
-        
-        # we've made it this far and its cool. we can now start the splitting.
+            if hostport[end+1] == ':':
+                # either ']' is followed by a colon or it is
+                # but its not the last one
+                raise AddressError(hostport, too_many_colons)
+            raise AddressError(hostport, missing_port)
+        # host port is worthy ipv6 and should be stripped now.
+        hostport = hostport.strip('[]')
+    elif '[' in hostport or ']' in hostport:
+        # contains only one of '[' ']'
+        raise AddressError(hostport, "address has only one of '[' and ']'")
+    else:
+        # not string representation of ipv6 but has more than one ':'
         host = hostport[0 : i]
-        port = hostport[i+1:]
-        return host, port
-    except AddressError:
-        raise
-
+        if ':'in host:
+            raise AddressError(hostport, too_many_colons)
+    
+    # we've made it this far and its cool. we can now start the splitting.
+    return hostport[0 : i], hostport[i+1:]
 
 
 class IPAddr(Addr):
@@ -129,12 +125,10 @@ class TCPAddr(IPAddr):
     """
     def __init__(self, addrinfo: tuple):
         IPAddr.__init__(self, addrinfo)
-
-    def port(self):
-        return self.addrinfo[1]
+        self.port = self.addrinfo[1]
 
     def __str__(self):
-        pass
+        return join_host_port(str(self.ipaddr), self.port)
 
 class UDPAddr(IPAddr):
     """
@@ -142,19 +136,10 @@ class UDPAddr(IPAddr):
     """
     def __init__(self, addrinfo: tuple):
         IPAddr.__init__(self, addrinfo)
-
-    def port(self):
-        return self.addrinfo[1]
+        self.port = self.addrinfo[1]
 
     def __str__(self):
-        pass
-
-class InvalidAddrFormat(Exception):
-    msg = 'addr is supposed to be of the format \
-    <protocol>:<ipaddr>:<port> or <ipaddr>:<port> \
-    or :<port>'
-    def __init__(self, message=msg):
-        super().__init__(message)
+        return join_host_port(str(self.ipaddr), self.port)
 
 class AddrConfig:
     """AddrConfig is used to configure parameters for the getaddrino function
@@ -180,10 +165,10 @@ class AddrConfig:
     def add_flag(self, flag: int):
         self.__addr_config['flags'] |= flag
 
-    def set_socktype(self, socktype: socket.SocketKind):
+    def set_socktype(self, socktype: Union[socket.SocketKind, int]):
         self.__addr_config['socktype'] = socktype
 
-    def set_family(self, family: socket.AddressFamily):
+    def set_family(self, family: Union[socket.AddressFamily, int]):
         self.__addr_config['family'] = family
 
     def set_proto(self, proto: int):
@@ -192,7 +177,7 @@ class AddrConfig:
     def get_config(self) -> dict:
         return self.__addr_config
 
-def resolve_addr_list(addr_config: dict) -> Optional[list[tuple]]:
+def resolve_addr_list(addr_config: dict):
     return socket.getaddrinfo(
             addr_config['host'],
             addr_config['port'],
@@ -200,23 +185,149 @@ def resolve_addr_list(addr_config: dict) -> Optional[list[tuple]]:
             addr_config['socktype'],
             addr_config['proto'],
             addr_config['flags']
-        ) 
+        )
 
-def resolve_udp_addr(address: Optional[str], network: str='udp') -> UDPAddr:
+def inet_addr_list(addr_config: dict, network: str):
+    """internet_addr_list returns a list of TCPAddr | UDPAddr | IPAddr
     """
-    resolve_tcp_addr returns an address of a udp endpoint
+    if network:
+        addrinfo_list = resolve_addr_list(addr_config)
+        addr_obj = None
+        if 'tcp' in network:
+            addr_obj = TCPAddr
+        elif 'udp' in network:
+            addr_obj = UDPAddr
+        elif 'ip' in network:
+            addr_obj = IPAddr
+        else:
+            raise UnknownNetworkError(network)
+        addr_list = []
+        for addrinfo in addrinfo_list:
+            addr_list.append(addr_obj(addrinfo[-1]))
+        return addr_list
+    else:
+        raise UnknownNetworkError(network)
+
+def config_inetaddr(host: str, port: str, network: str):
+    """config_inetadr returns an AddrConfig instance.
+
+    this instance can be resolved into an address endpoint
+    that can be connected to, sent into or listened on.
+
+    Parameters
+    -----------
+    host: str
+        the host node of the address
+
+    port: str
+        the literal port number or service name
+
+    network: str, optional
+        the network endpoint type of address
+    """
+    config = AddrConfig(host, port,
+            family=socket.AF_INET,
+            flags=socket.AI_ADDRCONFIG)
+
+    if '6' in network:
+        # address family for ipv6
+        config.set_family(socket.AF_INET6)
+        if not socket.has_ipv6:
+            # for machines without ipv6
+            config.add_flag(socket.AI_V4MAPPED)
+     
+    if 'udp' in network:
+        config.set_socktype(socket.SOCK_DGRAM)
+        config.set_proto(socket.IPPROTO_UDP)
+        return config
+    elif 'tcp' in network:
+        config.set_socktype(socket.SOCK_STREAM)
+        config.set_proto(socket.IPPROTO_TCP)
+        return config
+    elif not network:
+        config.set_socktype(socket.SOCK_STREAM)
+        config.set_family(socket.AF_UNSPEC)
+        config.add_flag(socket.AI_PASSIVE)
+        return config
+    else:
+        raise UnknownNetworkError(network)
+
+def resolver(host: str, port: str, network: str) -> tuple[list, AddrConfig]:
+    """return a list of resolved endpoints and the config used to resolve them
+    """
+    config = config_inetaddr(host, port, network)
+    addr_list = inet_addr_list(config.get_config(), network)
+    return addr_list, config
+
+def loopback_addr(network) -> str:
+    if '6' in network:
+        return '::1'
+    return '127.0.0.1'
+
+def resolve_udp_addr(address: str, network: str='udp') -> Optional[UDPAddr]:
+    """resolve_tcp_addr returns an address of a udp endpoint
+
+    if the address is not a literal ip address and port number,
+    resolve_udp_addr resolves the address to an endpoint of a udp network.
+    if address is empty or None, it defaults to using the appropriate
+    loopback ip
+
+    see resolve_addr for more info on structure of address and network
 
     Parameters:
     -----------
-    network
+    address: str
+        the udp endpoint to resolve
+
+    network: str
+        the type of udp network to resolve.
+
+    Raises
+    ------
+    UnknownNetworkError
     """
-    return UDPAddr(addrinfo=())
+    if 'udp' in network:
+        host, port = split_host_port(address)
+        if not host:
+            host = loopback_addr(network)
+        udp_addr_list, _ = resolver(host, port, network)
+        return udp_addr_list[0]
+    else:
+        raise UnknownNetworkError(network)
 
-def resolve_tcp_addr(address: Optional[str], network: str='udp') -> TCPAddr:
-    return TCPAddr(addrinfo=())
+def resolve_tcp_addr(address: str, network: str='tcp') -> TCPAddr:
+    """resolve_tcp_addr returns the tcp endpoint of address
 
-def resolve_addr(address: Optional[str], network: Optional[str]=None):
-    """ 
+    if the address is not a literal ip address and port number,
+    resolve_tcp_addr resolves the address to an endpoint of a tcp network.
+    if address is empty or None, it defaults to using the appropriate
+    loopback ip
+
+    see resolve_addr for more info on the structure of address and network.
+
+    Parameters:
+    -----------
+    address: str
+        address endpoint of the tcp connection
+
+    network: str
+        a tcp network name
+
+    """
+    if 'tcp' in network:
+        host, port = split_host_port(address)
+        if not host:
+            host = loopback_addr(network)
+        tcp_addr_list, _ = resolver(host, port, network)
+        return tcp_addr_list[0]
+    else:
+        raise UnknownNetworkError(network)
+
+def resolve_ip_addr(address: str, network: str = 'ip'):
+    pass
+
+def resolve_addr(address: str, network: str):
+    """
     resolve_addr returns an address that you can connect to, sendto or
     listen on.
 
@@ -231,7 +342,6 @@ def resolve_addr(address: Optional[str], network: Optional[str]=None):
 
     ports must be a literal number wrapped in a string or a service name. ex:
     "80" for a literal port number or "http" for the service name, both are valid.
-    None defaults to passing NULL to the underlying c api
 
     examples:
     --------    
@@ -250,5 +360,20 @@ def resolve_addr(address: Optional[str], network: Optional[str]=None):
         network represents the network of the endpoint. networks supported
         this package are "tcp", "tcp4" (IPv4 only), "tcp6" (IPv6 only),
         "udp", "upd4" (IPv4 only), "udp6" (IPv6 only)
+
+    Returns:
+    --------
+    TCPAddr | UDPAddr | IPAddr | Addr
+
+    Raises:
+    -------
+    UnknownNetworkError
     """
-    return UDPAddr(addrinfo=())
+    if 'tcp' in network:
+        return resolve_tcp_addr(address, network)
+    elif 'udp' in network:
+        return resolve_udp_addr(address, network)
+    elif 'ip' in network:
+        return resolve_ip_addr(address, network)
+    else:
+        raise UnknownNetworkError(network)
