@@ -1,0 +1,58 @@
+18 July 2021
+-------------
+Random notes about the project so far. As far as i've come
+on this project, i have not started any meaningful thing
+distributed systems or on the p2p chat system yet.
+
+I feel like i'm jumping in circles but i know i can do
+this project. I am perfectly capable of executing this
+project. To stop me from jumping in circles, i'm trying
+to define goals for myself anytime i'm working on this
+project. Might start to do this for other projects as
+well.
+
+So what do i got today?
+    - I am trying to give the address resolving, verification
+      and parsing layer a consistent interface and i
+      also want to complete it.
+
+      - on the address validation things. the plan is to
+        give the addresses to the ipaddress module to
+        verify if they are addreses, if they are not, i'll
+        proceed to call getaddrinfo with the network and
+        address provided if that also does not work then
+        the address is pretty much not right.
+
+      - for now there will be support for;
+        ('tcp', 'udp', 'udp4', 'tcp4') -> IPv4
+        ('tcp6', 'udp6') -> IPv6
+        More will probably come in the later releases of this
+        package or something, there's no plan i'm creating
+        this for personal use on my networking projects.
+
+      - the socket.getaddrinfo function has the type
+        signature;
+
+        'socket.getaddrinfo(host, port[, family[,\
+        socktype[, proto[, flags]]]])'
+
+        and returns a list of tuple of the form;
+        (AddrFamily, SockType, Proto, CanonName, SockAddr)
+
+        SockAddr is a tuple and it could be either;
+        IPv6 -> (ipaddr, port, flowinfo, scope_id)
+        IPv4 -> (ipaddr, port)
+
+    - Next up is figuring out how to type hint instances
+      of subclasses of a class without using Unions.
+
+July 21,2021
+------------
+This becoming more complicated than i thought i was and
+its starting to drive me crazy. Today i want to complete
+the address parsing part of this package so i can focus
+my energy tweaking sockets to deliver gold.
+
+    - get resolve_udp_addr and resolve_tcp_addr to work
+      seamlessly and have a common api. Make things simple
+      and do not repeat yourself.
