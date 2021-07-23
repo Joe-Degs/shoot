@@ -48,6 +48,8 @@ def split_host_port(hostport: str):
 
     missing_port = "missing port in address"
     too_many_colons = "too many colons in address"
+    host = ''
+    port = ''
 
     i = hostport.rfind(':')
     # if there is no ':' in hostport or ':' is the last thing
@@ -71,18 +73,19 @@ def split_host_port(hostport: str):
                 raise AddressError(hostport, too_many_colons)
             raise AddressError(hostport, missing_port)
         # host port is worthy ipv6 and should be stripped now.
-        hostport = hostport.strip('[]')
+        host, port = hostport[0 : i], hostport[i+1:]
+        host = host.strip('[]')
     elif '[' in hostport or ']' in hostport:
         # contains only one of '[' ']'
         raise AddressError(hostport, "address has only one of '[' and ']'")
     else:
         # not string representation of ipv6 but has more than one ':'
-        host = hostport[0 : i]
+        host, port = hostport[0 : i], hostport[i+1:]
         if ':'in host:
             raise AddressError(hostport, too_many_colons)
     
     # we've made it this far and its cool. we can now start the splitting.
-    return hostport[0 : i], hostport[i+1:]
+    return host, port
 
 
 class IPAddr(Addr):
